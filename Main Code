@@ -11,7 +11,7 @@ long timestartzipping;
 long timestopzipping;
 long timespentzipping;
 long timeforrecovery;
-long finezip = 5000;
+long finezip = 2000;
 long timebfhlfspd;
 long halfspdtime;
 
@@ -19,7 +19,7 @@ long halfspdtime;
 
 void setup(){
   pinMode(motor, OUTPUT);
-  pinMode(button, INPUT);
+  pinMode(button, INPUT_PULLUP);
   Serial.begin(9600);
 }
 
@@ -34,7 +34,7 @@ void loop(){
   if (state == READY)
   {
     digitalWrite(motor, LOW);
-    while (buttonvalue == 0)
+    while (buttonvalue == 1)
     {
       buttonvalue = digitalRead(button);   
     }
@@ -43,10 +43,11 @@ void loop(){
   }
 
 
+
 //-------------------------------------------------------------------ZIPPING-----------------------------------------------------------------------------------------------------------------------
   else if (state == ZIPPING)
   {
-    while (buttonvalue == 1)
+    while (buttonvalue == 0)
     {
       buttonvalue = digitalRead(button);
     }
@@ -55,50 +56,51 @@ void loop(){
     state = RECOVERY;
     Serial.print("time spent zipping: ");
     Serial.println(timespentzipping);
-    delay(4000);
+    delay(4000);       //wait for things to settle down before we go up the zip line
   }
 
 
+
 //--------------------------------------------------------------------RECOVERY--------------------------------------------------------------------------------------------------------
-  else if (state == RECOVERY)
+  else if (state == RECOVERY)         //Theres 3 stages to recovery, speed up the motor, go at full speed for a time (depending on how long they zipped), and finally go to half power untill its stopped.
   { 
-    for (int i = 0; i <= 255; i++) {     //this speeds up the motor slowly
+    for (int i = 0; i <= 255; i++) {     //this speeds up the motor slowly--------------
     analogWrite(motor, i);
-    delay(50);
-    buttonvalue = digitalRead(button);  //check the button and if its pushed then stop motor otherwise finish speeding up, go to full speed
-    if (buttonvalue == 1){
+    delay(20);
+    buttonvalue = digitalRead(button);  //check the button and if its pushed then stop motor and go back to ready otherwise finish speeding up
+    if (buttonvalue == 0){
       i = 255;
       buttonvalue = 1;
       currenttime = timeforrecovery;
      }
     }
     
-    digitalWrite(motor, HIGH);           //put motor at full speed
+    digitalWrite(motor, HIGH);           //put motor at full speed---------------------
     currenttime = millis();
     timeforrecovery = currenttime + timespentzipping + finezip;             //13 seconds currently is about the time it takes to ramp up (just multiply the delay by how many times in the for loop)
     Serial.print("time for recovery: ");
     Serial.println(timeforrecovery);
     Serial.println("full speed");
     
-    while (buttonvalue == 0 and currenttime < timeforrecovery){         
+    while (buttonvalue == 1 and currenttime < timeforrecovery){         
       buttonvalue = digitalRead(button);
       currenttime = millis();
-      if (buttonvalue == 1){
-        finezip = finezip + 500;
+      if (buttonvalue == 0){
+        finezip = finezip - 500;
       }
     }
     
-    analogWrite(motor, 80);      //put motor at half speed
+    analogWrite(motor, 80);      //put motor at half speed-----------------------------
     timebfhlfspd = millis();
     Serial.println("half speed");
     
-    while(buttonvalue == 0){
+    while(buttonvalue == 1){
       buttonvalue = digitalRead(button);
-      if (buttonvalue == 1){
+      if (buttonvalue == 0){
         currenttime = millis();
         halfspdtime = currenttime - timebfhlfspd;
-        if (halfspdtime > 3000){     //this is stating that if half speed has been going for to long then cut some time so it gets to half speed quicker I think?
-          finezip = finezip - 500;
+        if (halfspdtime > 4000){     //this is stating that if half speed has been going for to long then cut some time so it gets to half speed quicker I think?
+          finezip = finezip + 500;
         }
       }
     }
@@ -107,6 +109,6 @@ void loop(){
     Serial.println("motor is off");
     delay(3000);
     state = READY;
-    buttonvalue = 0;
+    buttonvalue = 1;
   }
  }
