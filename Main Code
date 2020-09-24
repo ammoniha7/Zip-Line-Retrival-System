@@ -14,6 +14,7 @@ long timeforrecovery;
 long finezip = 2000;
 long timebfhlfspd;
 long halfspdtime;
+long readytimelimit;
 
 
 
@@ -31,15 +32,27 @@ void loop(){
   Serial.println(state);
   Serial.print("finezip is: ");
   Serial.println(finezip);
+  currenttime = millis();
+  readytimelimit = currenttime + 600000;  //That is 10 min in milliseconds so if it sits on "ready" for more than 10 min then turn on the motor
   if (state == READY)
   {
     digitalWrite(motor, LOW);
-    while (buttonvalue == 1)
+    while (buttonvalue == 1 and currenttime < readytimelimit)
     {
-      buttonvalue = digitalRead(button);   
+      buttonvalue = digitalRead(button);;
+      currenttime = millis();
     }
     state = ZIPPING;
     timestartzipping = millis();
+    if (currenttime > readytimelimit){  //this is to check if we got out of ready because the button was pushed or becuase we went over the time limit
+      digitalWrite(motor, 150);
+      while (buttonvalue == 0){
+        buttonvalue = digitalRead(button);
+        if (buttonvalue = 0){
+          state = READY;
+        }
+      }
+    }
   }
 
 
