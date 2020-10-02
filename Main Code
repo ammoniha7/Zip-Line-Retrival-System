@@ -2,7 +2,7 @@
 #define READY 1
 #define ZIPPING 2
 #define RECOVERY 3
-int motor = 11;
+int motor = 3;
 int button = 9;
 int buttonvalue = 0;
 int state = READY;
@@ -11,10 +11,9 @@ long timestartzipping;
 long timestopzipping;
 long timespentzipping;
 long timeforrecovery;
-long finezip = 2000;
-long timebfhlfspd;
-long halfspdtime;
-long readytimelimit;
+long finezip = -1000;
+long timebeforehalfspeed;
+long halfspeedtime;
 
 
 
@@ -32,27 +31,15 @@ void loop(){
   Serial.println(state);
   Serial.print("finezip is: ");
   Serial.println(finezip);
-  currenttime = millis();
-  readytimelimit = currenttime + 600000;  //That is 10 min in milliseconds so if it sits on "ready" for more than 10 min then turn on the motor
   if (state == READY)
   {
     digitalWrite(motor, LOW);
-    while (buttonvalue == 1 and currenttime < readytimelimit)
+    while (buttonvalue == 1)
     {
-      buttonvalue = digitalRead(button);;
-      currenttime = millis();
+      buttonvalue = digitalRead(button);
     }
     state = ZIPPING;
     timestartzipping = millis();
-    if (currenttime > readytimelimit){  //this is to check if we got out of ready because the button was pushed or becuase we went over the time limit
-      digitalWrite(motor, 150);
-      while (buttonvalue == 0){
-        buttonvalue = digitalRead(button);
-        if (buttonvalue = 0){
-          state = READY;
-        }
-      }
-    }
   }
 
 
@@ -77,9 +64,9 @@ void loop(){
 //--------------------------------------------------------------------RECOVERY--------------------------------------------------------------------------------------------------------
   else if (state == RECOVERY)         //Theres 3 stages to recovery, speed up the motor, go at full speed for a time (depending on how long they zipped), and finally go to half power untill its stopped.
   { 
-    for (int i = 0; i <= 255; i++) {     //this speeds up the motor slowly--------------
+    for (int i = 0; i <= 255; i++) {     //this speeds up the motor slowly-------------- if want to start at a higher voltage then set i = larger num
     analogWrite(motor, i);
-    delay(20);
+    delay(50);
     buttonvalue = digitalRead(button);  //check the button and if its pushed then stop motor and go back to ready otherwise finish speeding up
     if (buttonvalue == 0){
       i = 255;
@@ -104,15 +91,15 @@ void loop(){
     }
     
     analogWrite(motor, 80);      //put motor at half speed-----------------------------
-    timebfhlfspd = millis();
+    timebeforehalfspeed = millis();
     Serial.println("half speed");
     
     while(buttonvalue == 1){
       buttonvalue = digitalRead(button);
       if (buttonvalue == 0){
         currenttime = millis();
-        halfspdtime = currenttime - timebfhlfspd;
-        if (halfspdtime > 4000){     //this is stating that if half speed has been going for to long then cut some time so it gets to half speed quicker I think?
+        halfspeedtime = currenttime - timebeforehalfspeed;
+        if (halfspeedtime > 4000){     //this is stating that if half speed has been going for to long then cut some time so it gets to half speed quicker
           finezip = finezip + 500;
         }
       }
