@@ -3,7 +3,7 @@
 #define RECOVERY 3
 int motor = 3;
 int button = 9;
-int buttonvalue = 0;
+int buttonvalue = 1;
 int state = READY;
 long currenttime;
 long timestartzipping;
@@ -74,9 +74,9 @@ void loop(){
      }
     }
     
-    digitalWrite(motor, HIGH);           //put motor at full speed---------------------
+    digitalWrite(motor, HIGH);     //put motor at full speed---------------------
     currenttime = millis();
-    timeforrecovery = currenttime + timespentzipping + finezip;             //13 seconds currently is about the time it takes to ramp up (just multiply the delay by how many times in the for loop)
+    timeforrecovery = currenttime + timespentzipping + finezip;             //finezip will determine how long it goes at full speed and then switch to half speed
     Serial.print("time for recovery: ");
     Serial.println(timeforrecovery);
     Serial.println("full speed");
