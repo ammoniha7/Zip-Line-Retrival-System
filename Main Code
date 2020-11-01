@@ -1,18 +1,18 @@
 #define READY 1
 #define ZIPPING 2
 #define RECOVERY 3
-int motor = 3;
-int button = 9;
+int motor = 9;
+int button = 10;
 int buttonvalue = 1;
 int state = READY;
-long currenttime;
-long timestartzipping;
-long timestopzipping;
-long timespentzipping;
-long timeforrecovery;
-long finezip = -1000;
-long timebeforehalfspeed;
-long halfspeedtime;
+unsigned long currenttime;
+unsigned long timestartzipping;
+unsigned long timestopzipping;
+unsigned long timespentzipping;
+unsigned long timeforrecovery;
+long finezip = 1000;
+unsigned long timebeforehalfspeed;
+unsigned long halfspeedtime;
 
 
 
@@ -63,9 +63,9 @@ void loop(){
 //--------------------------------------------------------------------RECOVERY--------------------------------------------------------------------------------------------------------
   else if (state == RECOVERY)         //Theres 3 stages to recovery, speed up the motor, go at full speed for a time (depending on how long they zipped), and finally go to half power untill its stopped.
   { 
-    for (int i = 0; i <= 255; i++) {     //this speeds up the motor slowly-------------- if want to start at a higher voltage then set i = larger num
+    for (int i = 40; i <= 170; i++) {     //this speeds up the motor slowly-------------- if want to start at a higher voltage then set i = larger num
     analogWrite(motor, i);
-    delay(50);
+    delay(15);
     buttonvalue = digitalRead(button);  //check the button and if its pushed then stop motor and go back to ready otherwise finish speeding up
     if (buttonvalue == 0){
       i = 255;
@@ -74,7 +74,7 @@ void loop(){
      }
     }
     
-    digitalWrite(motor, HIGH);     //put motor at full speed---------------------
+    analogWrite(motor, 170);     //put motor at full speed---------------------
     currenttime = millis();
     timeforrecovery = currenttime + timespentzipping + finezip;             //finezip will determine how long it goes at full speed and then switch to half speed
     Serial.print("time for recovery: ");
