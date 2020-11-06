@@ -1,4 +1,4 @@
-//Aewwww yeaaaaa
+//yes sir ree bob
 #define READY 1
 #define ZIPPING 2
 #define RECOVERY 3
@@ -39,17 +39,14 @@ void setup(){
 
 void loop(){
 //------------------------------------------------------------------READY------------------------------------------------------------------------------------------------------------
-  Serial.print("state = ");
-  Serial.println(state);
-  Serial.print("finezip is: ");
-  Serial.println(finezip);
+  Serial.print("state = "), Serial.println(state);
+  Serial.print("finezip is: "), Serial.println(finezip);
   if (state == READY)
   {
     checkbuttons();
     digitalWrite(motor, LOW);
     digitalWrite(readylight, HIGH);
-    while (handlebarbuttonvalue == 1)
-    {
+    while (handlebarbuttonvalue == 1){
       handlebarbuttonvalue = digitalRead(handlebarbutton);
     }
     starttime();
@@ -63,23 +60,20 @@ void loop(){
 //-------------------------------------------------------------------ZIPPING-----------------------------------------------------------------------------------------------------------------------
   else if (state == ZIPPING)
   {
-    while (handlebarbuttonvalue == 0)
-    {
+    while (handlebarbuttonvalue == 0){
       handlebarbuttonvalue = digitalRead(handlebarbutton);
     }
     gettime();
     state = RECOVERY;
-    Serial.print("time spent zipping: ");
-    Serial.println(clocktime);
+    Serial.print("time spent zipping: "), Serial.println(clocktime);
     delay(5000);       //wait for things to settle down before we go up the zip line
   }
 
 
 
 //--------------------------------------------------------------------RECOVERY--------------------------------------------------------------------------------------------------------
-  else if (state == RECOVERY)         //Theres 3 stages to recovery, speed up the motor, go at full speed for a time (depending on how long they zipped), and finally go to half power untill its stopped.
-  { 
-    for (int i = 45; i <= 215; i++) {     //this speeds up the motor slowly-------------- if want to start at a higher voltage then set i = larger num
+  else if (state == RECOVERY){         //Theres 3 stages to recovery, speed up the motor, go at full speed for a time (depending on how long they zipped), and finally go to half power untill its stopped.
+    for (int i = 45; i <= 215; i++){     //this speeds up the motor slowly-------------- if want to start at a higher voltage then set i = larger num
     analogWrite(motor, i);
     delay(20);
     checkbuttons();
@@ -91,10 +85,8 @@ void loop(){
     starttime();
     clocktime = currenttime + clocktime + finezip;             //finezip will determine how long it goes at full speed and then switch to half speed
     currenttime = clocktime - currenttime;
-    Serial.println("time for recovery #2");
-    Serial.println(currenttime);
-    Serial.print("time for recovery: ");
-    Serial.println(clocktime);
+    Serial.print("time for recovery2: "), Serial.println(currenttime);
+    Serial.print("time for recovery: "), Serial.println(clocktime);
     Serial.println("full speed");
     
     while (stopbuttonvalue == 1 and handlebarbuttonvalue == 1 and currenttime < clocktime){         
@@ -113,6 +105,7 @@ void loop(){
       checkbuttons();
       if (stopbuttonvalue == 0 or handlebarbuttonvalue == 0){
         gettime();
+        Serial.print("half speed time: "), Serial.println(clocktime);
         if (clocktime > 4000){     //this is stating that if half speed has been going for to long then cut some time so it gets to half speed quicker
           finezip = finezip + 500;
         }
