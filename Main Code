@@ -1,4 +1,4 @@
-//FINAL ITERATION with functions
+//Aewwww yeaaaaa
 #define READY 1
 #define ZIPPING 2
 #define RECOVERY 3
@@ -11,9 +11,7 @@ int state = READY;
 int readylight = 13;
 unsigned long currenttime;
 unsigned long aftertime;
-unsigned long timeis;
-unsigned long timeforrecovery;
-unsigned long halfspeedtime;
+unsigned long clocktime;
 long finezip = 0;
 
 void starttime(){
@@ -22,7 +20,7 @@ void starttime(){
 
 void gettime(){
   aftertime = millis();
-  timeis = aftertime - currenttime;
+  clocktime = aftertime - currenttime;
 }
 
 void checkbuttons(){
@@ -47,6 +45,7 @@ void loop(){
   Serial.println(finezip);
   if (state == READY)
   {
+    checkbuttons();
     digitalWrite(motor, LOW);
     digitalWrite(readylight, HIGH);
     while (handlebarbuttonvalue == 1)
@@ -71,7 +70,7 @@ void loop(){
     gettime();
     state = RECOVERY;
     Serial.print("time spent zipping: ");
-    Serial.println(timeis);
+    Serial.println(clocktime);
     delay(5000);       //wait for things to settle down before we go up the zip line
   }
 
@@ -90,12 +89,15 @@ void loop(){
     }
     
     starttime();
-    timeforrecovery = currenttime + timeis + finezip;             //finezip will determine how long it goes at full speed and then switch to half speed
+    clocktime = currenttime + clocktime + finezip;             //finezip will determine how long it goes at full speed and then switch to half speed
+    currenttime = clocktime - currenttime;
+    Serial.println("time for recovery #2");
+    Serial.println(currenttime);
     Serial.print("time for recovery: ");
-    Serial.println(timeforrecovery);
+    Serial.println(clocktime);
     Serial.println("full speed");
     
-    while (stopbuttonvalue == 1 and handlebarbuttonvalue == 1 and currenttime < timeforrecovery){         
+    while (stopbuttonvalue == 1 and handlebarbuttonvalue == 1 and currenttime < clocktime){         
       checkbuttons();
       starttime();
       if (stopbuttonvalue == 0 or handlebarbuttonvalue == 0){
@@ -104,15 +106,14 @@ void loop(){
     }
     
     analogWrite(motor, 130);      //put motor at half speed-----------------------------
-    starttime();
     Serial.println("half speed");
+    starttime();
     
     while(stopbuttonvalue == 1 and handlebarbuttonvalue == 1){
       checkbuttons();
       if (stopbuttonvalue == 0 or handlebarbuttonvalue == 0){
         gettime();
-        halfspeedtime = aftertime - currenttime;
-        if (halfspeedtime > 4000){     //this is stating that if half speed has been going for to long then cut some time so it gets to half speed quicker
+        if (clocktime > 4000){     //this is stating that if half speed has been going for to long then cut some time so it gets to half speed quicker
           finezip = finezip + 500;
         }
       }
@@ -122,7 +123,5 @@ void loop(){
     Serial.println("motor is off");
     delay(3000);
     state = READY;
-    handlebarbuttonvalue = 1;
-    stopbuttonvalue = 1;
   }
  }
