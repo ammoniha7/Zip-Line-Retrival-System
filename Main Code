@@ -1,4 +1,4 @@
-//yes sir ree bob
+//FINAL ITERATION with functions
 #define READY 1
 #define ZIPPING 2
 #define RECOVERY 3
@@ -12,7 +12,7 @@ int readylight = 13;
 unsigned long currenttime;
 unsigned long aftertime;
 unsigned long clocktime;
-long finezip = 0;
+long finezip = 3000;
 
 void starttime(){
   currenttime = millis();
@@ -41,8 +41,7 @@ void loop(){
 //------------------------------------------------------------------READY------------------------------------------------------------------------------------------------------------
   Serial.print("state = "), Serial.println(state);
   Serial.print("finezip is: "), Serial.println(finezip);
-  if (state == READY)
-  {
+  if (state == READY){
     checkbuttons();
     digitalWrite(motor, LOW);
     digitalWrite(readylight, HIGH);
@@ -58,8 +57,7 @@ void loop(){
 
 
 //-------------------------------------------------------------------ZIPPING-----------------------------------------------------------------------------------------------------------------------
-  else if (state == ZIPPING)
-  {
+  else if (state == ZIPPING){
     while (handlebarbuttonvalue == 0){
       handlebarbuttonvalue = digitalRead(handlebarbutton);
     }
@@ -73,20 +71,20 @@ void loop(){
 
 //--------------------------------------------------------------------RECOVERY--------------------------------------------------------------------------------------------------------
   else if (state == RECOVERY){         //Theres 3 stages to recovery, speed up the motor, go at full speed for a time (depending on how long they zipped), and finally go to half power untill its stopped.
-    for (int i = 45; i <= 215; i++){     //this speeds up the motor slowly-------------- if want to start at a higher voltage then set i = larger num
-    analogWrite(motor, i);
-    delay(20);
-    checkbuttons();
-    if (stopbuttonvalue == 0 or handlebarbuttonvalue == 0){
-      i = 256;   //one more than the max
-     }
+    for (int i = 45; i <= 255; i++){     //this speeds up the motor slowly-------------- if want to start at a higher voltage then set i = larger num
+      analogWrite(motor, i);
+      delay(15);
+      checkbuttons();
+      if (stopbuttonvalue == 0 or handlebarbuttonvalue == 0){
+        break;
+      }
     }
     
     starttime();
     clocktime = currenttime + clocktime + finezip;             //finezip will determine how long it goes at full speed and then switch to half speed
     currenttime = clocktime - currenttime;
-    Serial.print("time for recovery2: "), Serial.println(currenttime);
-    Serial.print("time for recovery: "), Serial.println(clocktime);
+    Serial.print("recovery time in normal: "), Serial.println(currenttime);
+    Serial.print("recovery time in millis(): "), Serial.println(clocktime);
     Serial.println("full speed");
     
     while (stopbuttonvalue == 1 and handlebarbuttonvalue == 1 and currenttime < clocktime){         
@@ -97,7 +95,7 @@ void loop(){
       }
     }
     
-    analogWrite(motor, 130);      //put motor at half speed-----------------------------
+    analogWrite(motor, 100);      //put motor at half speed-----------------------------
     Serial.println("half speed");
     starttime();
     
