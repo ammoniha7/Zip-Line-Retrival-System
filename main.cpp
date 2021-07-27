@@ -288,7 +288,7 @@ void checkClient(){
 
 
 bool isStalled(){
-  //As this is called it will start a timer and if no rotations have been counted in 160 millis then it return true (it's stalled)
+  // If there have been no rotations in less than 160 milliseconds will return true, otherwise false
   if(!stall_timer_started){
     stall_timer_started = true;
     stallTimer.start();
