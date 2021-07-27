@@ -6,6 +6,8 @@
 #define ledChannel 0
 #define resolution 8
 #define freq 5000
+#define RECOVERY_TO_READY_AFTER_BEEN_GRABBED_TIME 1700
+#define CPU_FREQ 80
 
 WiFiServer server(80);
 
@@ -33,7 +35,7 @@ bool stall_timer_started = false;
 unsigned long stallRotationCount;
 int motorAccelerationTimeLimit = 25;
 int motorsMaxSpeed = 210;
-int recoveryWaitTime = 1000;
+int recoveryWaitTime = 7000;
 Timer recoveryTimer;
 Timer atTheTopTimer;
 Timer readyTimeOutTimer;
@@ -48,9 +50,9 @@ unsigned long countToTopLimit;
 unsigned long countToTopLimitOffset = 20;
 bool crossedThreshold = false;
 int highThreshold = 3000;
-String high_threshold_string = "3000";
+String high_threshold_string = String(highThreshold);
 int lowThreshold = 300;
-String lower_threshold_string = "300";
+String lower_threshold_string = String(lowThreshold);
 String current_ir_string;
 Timer odometerTimer;
 
@@ -63,12 +65,13 @@ String direction_string = "Forward";
 String motor_max_speed_string = String(motorsMaxSpeed);
 String motor_direction_state_string;
 String motor_direction_string = "Forward";
-String recover_wait_time_string = String(recoveryWaitTime);
+String recover_wait_time_string = String(recoveryWaitTime * 0.001);  //cause actual variable is in miliseconds but wifi is in seconds
 
 String header;
 String currentLine;
 Timer wifiTimer;
 bool wifiStopMotor = false;
+bool wifiSkipToRecovery = false;
 
 void countRotations(){
   for(int times=0; times<=4; times++){
@@ -84,9 +87,15 @@ void countRotations(){
 
 void startCount(){
   beforeRotations = rotations;
+  Serial.print("Before Rotations: ");
+  Serial.prinln(beforeRotations);
 }
 
 void stopCount(){
+  if(rotations - beforeRotations < 10){   //This is if someone pulls it at the top and stuff dont actully go down
+    countToTopLimit = rotations + 500;
+    return;
+  }
   countToTopLimit = (rotations + (rotations - beforeRotations)) - countToTopLimitOffset;
   Serial.print("Count limit: ");
   Serial.println(countToTopLimit);
@@ -94,7 +103,7 @@ void stopCount(){
   Serial.println(rotations);
 }
 
-bool isPastCount(){
+bool isAtTheTop(){
   if(rotations > countToTopLimit){return true;}
   else{return false;}
 }
@@ -176,27 +185,29 @@ void checkClient(){
               Serial.print("Recover wait time is now: ");
               Serial.println(recover_wait_time_string);
             }
+            else if(header.indexOf("GET /skiptorecovery")>=0){
+              wifiSkipToRecovery = true;
+            }
 
 
             // Display the HTML web page
             client.println("<!DOCTYPE html><html>");
             client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
             client.println("<link rel=\"icon\" href=\"data:,\">");
-            // CSS to style the on/off buttons 
-            // Feel free to change the background-color and font-size attributes to fit your preferences
             client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
             client.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;");
             client.println("text-decoration: none; font-size: 17px; margin: 2px; cursor: pointer;}");
             client.println(".stopbutton {background-color: #e62117;}");
             client.println(".spencerbutton {background-color: #f2eb18;}");
             client.println(".refreshbutton {background-color: #bb5843;}");
+            client.println(".skiptorecoverybutton {background-color: #775cb7;}");
             client.println(".directionbutton {background-color: #0b45d9;}</style></head>");
             client.println("<style>body { text-align: center; font-family: \"Trebuchet MS\", Arial; margin-left:auto; margin-right:auto;}");
             client.println(".slider { width: 300px; }</style>");
             client.println("<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js\"></script>");
             client.println("<body>");
             // Web Page Heading Text
-            client.println("<h1>Pulley Controls</h1>");
+            client.println("<h1>Zip Line Controls</h1>");
             client.println("<p> State : " + state_string + "</p>");
             if (motor_direction_state_string=="off"){
               client.println("<p><a href=\"/directionon\"><button class=\"button directionbutton\">Backward</button></a></p>");
@@ -248,6 +259,7 @@ void checkClient(){
             client.println("$.ajaxSetup({timeout:1000}); function upper(pos2) { ");
             client.println("$.get(\"/?higherthreshold=\" + pos2 + \"&\"); {Connection: close};}</script>");
 
+            client.println("<p><a href=\"/skiptorecovery\"><button class=\"button skiptorecoverybutton\">Skip to Recovery</button></a></p>");
             client.println("<p><a href=\"/refresh\"><button class=\"button refreshbutton\">Refresh</button></a></p>");
 
 
@@ -267,6 +279,7 @@ void checkClient(){
     // Clear the header variable
     header = "";
     // Close the connection
+    delay(2);
     client.stop();
     Serial.println("Client disconnected.");
     Serial.println("");
@@ -275,6 +288,7 @@ void checkClient(){
 
 
 bool isStalled(){
+  //As this is called it will start a timer and if no rotations have been counted in 160 millis then it return true (it's stalled)
   if(!stall_timer_started){
     stall_timer_started = true;
     stallTimer.start();
@@ -309,8 +323,9 @@ void readyRoutine(){
   readyTimeOutTimer.start();
   while(not someoneOn()){
     checkClient();
-    if(readyTimeOutTimer.getTime() > 120000){
+    if(readyTimeOutTimer.getTime() > 120000 or wifiSkipToRecovery){
       State = RECOVERY;
+      wifiSkipToRecovery = false;
       return;
     }
   }
@@ -335,6 +350,7 @@ void zippingRoutine(){
 }
 
 void recoveryExitRoutine(){
+  // This is how recovery exits to ready when either: someone pulls on handlebar, or stop it with wifi.
   turnOnMotor(0);
   digitalWrite(recoveryLight, LOW);
   digitalWrite(buzzer, LOW);
@@ -343,7 +359,7 @@ void recoveryExitRoutine(){
     else if(atTheTopTimer.getTime() < 1000){countToTopLimitOffset -= 2;}
   }
   recoveryTimer.start();
-  while(recoveryTimer.getTime() < 1700){
+  while(recoveryTimer.getTime() < RECOVERY_TO_READY_AFTER_BEEN_GRABBED_TIME){
     checkClient();
   }
   State = READY;
@@ -374,11 +390,9 @@ void recoveryRoutine(){
         recoveryExitRoutine();
         return;
       }
-      if(i > motorsMaxSpeed - 30){
-        if(isStalled()){
-          recoveryExitRoutine();
-          return;
-        }
+      if(i > motorsMaxSpeed - 30 and isStalled()){
+        recoveryExitRoutine();
+        return;
       }
     }
   }
@@ -389,7 +403,7 @@ void recoveryRoutine(){
     if(wifiStopMotor){
       break;
     }
-    if(isPastCount() and not atTheTop){
+    if(isAtTheTop() and not atTheTop){
       turnOnMotor(motorsMaxSpeed - 70);
       Serial.println("Turning motor down because were at the top!");
       atTheTop = true;
@@ -400,13 +414,14 @@ void recoveryRoutine(){
 }
 
 void updateVariableStrings(){
+  // I was expecting this function to have more stuff but it only updates the state string
   if(State == READY){state_string = "Ready";}
   else if(State == ZIPPING){state_string = "Zipping";}
   else if(State == RECOVERY){state_string = "Recovery";}
 }
 
 void setup(){
-  setCpuFrequencyMhz(160);
+  setCpuFrequencyMhz(CPU_FREQ);
   Serial.begin(115200);
   pinMode(33, OUTPUT);
   digitalWrite(33, LOW); //braden shorted this or something...
