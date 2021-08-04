@@ -1,4 +1,6 @@
 #include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
 #define READY 1
 #define ZIPPING 2
@@ -9,7 +11,53 @@
 #define RECOVERY_TO_READY_AFTER_BEEN_GRABBED_TIME 1700
 #define CPU_FREQ 80
 
-WiFiServer server(80);
+AsyncWebServer server(80);
+
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zip Line Controls</title>
+  <style>
+    html {font-family: Arial; display: inline-block; text-align: center;}
+    h2 {font-size: 1.4rem;}
+    p {font-size: 1rem;}
+    body {max-width: 400px; margin:0px auto; padding-bottom: 25px;}
+    .slider { -webkit-appearance: none; margin: 14px; width: 360px; height: 25px; background: #FFD65C;
+      outline: none; -webkit-transition: .2s; transition: opacity .2s;}
+    .slider::-webkit-slider-thumb {-webkit-appearance: none; appearance: none; width: 35px; height: 35px; background: #003249; cursor: pointer;}
+    .slider::-moz-range-thumb { width: 35px; height: 35px; background: #003249; cursor: pointer; }
+    .stop_button{background-color: #ff0001; border: none; color: black; padding: 16px 40px;}
+    .direction_button{background-color: #00ff00; border: none; color: black; padding: 16px 40px;}
+    .go_up_button{background-color: #0000ff; border: none; color: yellow; padding: 16px 40px;}
+  </style>
+</head>
+<body>
+  <h2>Zip Line Controls</h2>
+  <p>State: %STATE% Direction: %DIRECTION%</p>
+  <p><button id="stop_button" class="button stop_button" onclick="buttonClickSend(this)">Stop Motor</button></p>
+  <p><button id="direction_button" class="button direction_button" onclick="buttonClickSend(this)">Direction</button></p>
+  <p><button id="go_up_button" class="button go_up_button" onclick="buttonClickSend(this)">Go Up</button></p>
+  <p><span id="max_speed_slider">Max Speed: %MAXSPEEDVALUE%</span></p>
+  <p><input type="range" onchange="sliderSend(this)" id="pwmSlider" min="60" max="255" value="%MAXSPEEDVALUE%" step="1" class="slider"></p>
+<script>
+function sliderSend(element){
+  var sliderValue = element.value;
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", "/maxspeed?value="+sliderValue, true);
+  xhr.send();
+}
+function buttonClickSend(element){
+  var xhr = new XMLHttpRequest();
+  if(element.id == "stop_button"){xhr.open("GET", "/stop_click", true);}
+  else if(element.id == "direction_button"){xhr.open("GET", "/direction_click", true);}
+  else if(element.id == "go_up_button"){xhr.open("GET", "/go_up_click", true);}
+  xhr.send();
+}
+</script>
+</body>
+</html>
+)rawliteral";
 
 class Timer{
 public:
@@ -22,16 +70,16 @@ public:
   }
 };
 
-int readyLight = 32;
-int zipLight = 25;
-int recoveryLight = 26;
+int readyLight = 18;
+int zipLight = 16;
+int recoveryLight = 17;
 int buzzer = 27;
 int motorDirection = 22;
-int motor = 21;
-int handleBarSensor = 14;
+int motor = 2;
+int handleBarSensor = 15;
 int State = READY;
 bool atTheTop = false;
-bool stall_timer_started = false;
+bool stallTimerStarted = false;
 unsigned long stallRotationCount;
 int motorAccelerationTimeLimit = 25;
 int motorsMaxSpeed = 210;
@@ -49,6 +97,7 @@ unsigned long beforeRotations;
 unsigned long countToTopLimit;
 unsigned long countToTopLimitOffset = 20;
 bool crossedThreshold = false;
+bool shouldCheckAtTheTop = true;
 int highThreshold = 3000;
 String high_threshold_string = String(highThreshold);
 int lowThreshold = 300;
@@ -61,10 +110,10 @@ const char* password = "123456789";
 
 int wifiMenu = 1;
 String state_string = "Ready";
-String direction_string = "Forward";
+String direction_string = "Up";
 String motor_max_speed_string = String(motorsMaxSpeed);
 String motor_direction_state_string;
-String motor_direction_string = "Forward";
+String motor_direction_string = "Up";
 String recover_wait_time_string = String(recoveryWaitTime * 0.001);  //cause actual variable is in miliseconds but wifi is in seconds
 
 String header;
@@ -88,7 +137,7 @@ void countRotations(){
 void startCount(){
   beforeRotations = rotations;
   Serial.print("Before Rotations: ");
-  Serial.prinln(beforeRotations);
+  Serial.println(beforeRotations);
 }
 
 void stopCount(){
@@ -104,211 +153,40 @@ void stopCount(){
 }
 
 bool isAtTheTop(){
-  if(rotations > countToTopLimit){return true;}
-  else{return false;}
-}
-
-
-
-
-void checkClient(){                        
-  WiFiClient client = server.available();   // Listen for incoming clients
-
-  if (client) {                             // If a new client connects,
-    Serial.println("New Client.");          // print a message out in the serial port
-    String currentLine = "";                // make a String to hold incoming data from the client
-    while (client.connected()) {            // loop while the client's connected
-      if (client.available()) {             // if there's bytes to read from the client,
-        char c = client.read();             // read a byte, then
-        Serial.write(c);                    // print it out the serial monitor
-        header += c;
-        if (c == '\n') {                    // if the byte is a newline character
-          // if the current line is blank, you got two newline characters in a row.
-          // that's the end of the client HTTP request, so send a response:
-          if (currentLine.length() == 0) {
-            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-            // and a content-type so the client knows what's coming, then a blank line:
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println("Connection: close");
-            client.println();
-            if (header.indexOf("GET /directionon") >= 0){  
-              Serial.println("direction on");
-              motor_direction_state_string = "on";
-              motor_direction_string = "Forward";
-              digitalWrite(motorDirection, HIGH);
-              Serial.println("Direction is HIGH");
-            }
-            else if (header.indexOf("GET /directionoff") >= 0){
-              Serial.println("direction off");
-              motor_direction_state_string = "off";
-              motor_direction_string = "Backward";
-              digitalWrite(motorDirection, LOW);
-              Serial.println("Direction is LOW");
-            }
-            //Stop button
-            else if (header.indexOf("GET /stopmotor") >= 0 and State == RECOVERY) {
-              wifiStopMotor = true;
-            }
-            //max speed slider
-            else if(header.indexOf("GET /?maxspeed=")>=0) {
-              int max1 = header.indexOf('=');
-              int max2 = header.indexOf('&');
-              motor_max_speed_string = header.substring(max1+1, max2);
-              motorsMaxSpeed = motor_max_speed_string.toInt();
-              Serial.print("Max Speed is now: ");
-              Serial.println(motor_max_speed_string);
-            }
-            //lower threshold slider
-            else if(header.indexOf("GET /?lowerthreshold=")>=0) {
-              int lower1 = header.indexOf('=');
-              int lower2 = header.indexOf('&');
-              lower_threshold_string = header.substring(lower1+1, lower2);
-              lowThreshold = lower_threshold_string.toInt();
-              Serial.print("Lower Threshold: ");
-              Serial.println(lowThreshold);
-            }
-            //upper threshold slider
-            else if(header.indexOf("GET /?higherthreshold=")>=0) {
-              int upper1 = header.indexOf('=');
-              int upper2 = header.indexOf('&');
-              high_threshold_string = header.substring(upper1+1, upper2);
-              highThreshold = high_threshold_string.toInt();
-              Serial.print("Upper Threshold: ");
-              Serial.println(highThreshold);
-            }
-            else if(header.indexOf("GET /?recoverywaittime=")>=0) {
-              int pos1 = header.indexOf('=');
-              int pos2 = header.indexOf('&');
-              recover_wait_time_string = header.substring(pos1+1, pos2);
-              recoveryWaitTime = recover_wait_time_string.toInt() * 1000;
-              Serial.print("Recover wait time is now: ");
-              Serial.println(recover_wait_time_string);
-            }
-            else if(header.indexOf("GET /skiptorecovery")>=0){
-              wifiSkipToRecovery = true;
-            }
-
-
-            // Display the HTML web page
-            client.println("<!DOCTYPE html><html>");
-            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-            client.println("<link rel=\"icon\" href=\"data:,\">");
-            client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-            client.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;");
-            client.println("text-decoration: none; font-size: 17px; margin: 2px; cursor: pointer;}");
-            client.println(".stopbutton {background-color: #e62117;}");
-            client.println(".spencerbutton {background-color: #f2eb18;}");
-            client.println(".refreshbutton {background-color: #bb5843;}");
-            client.println(".skiptorecoverybutton {background-color: #775cb7;}");
-            client.println(".directionbutton {background-color: #0b45d9;}</style></head>");
-            client.println("<style>body { text-align: center; font-family: \"Trebuchet MS\", Arial; margin-left:auto; margin-right:auto;}");
-            client.println(".slider { width: 300px; }</style>");
-            client.println("<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js\"></script>");
-            client.println("<body>");
-            // Web Page Heading Text
-            client.println("<h1>Zip Line Controls</h1>");
-            client.println("<p> State : " + state_string + "</p>");
-            if (motor_direction_state_string=="off"){
-              client.println("<p><a href=\"/directionon\"><button class=\"button directionbutton\">Backward</button></a></p>");
-            } else {
-              client.println("<p><a href=\"/directionoff\"><button class=\"button directionbutton\">Forward</button></a></p>");
-            } 
-            //Stop button
-            client.println("<p><a href=\"/stopmotor\"><button class=\"button stopbutton\">Stop</button></a></p>");
-            client.println("<p><a href=\"/spencer\"><button class=\"button spencerbutton\">Spencer</button></a></p>");
-            //Motor speed slider
-            client.println("<p>Recovery Wait Time: <span id=\"servoPos\"></span></p>");          
-            client.println("<input type=\"range\" min=\"0\" max=\"50\" class=\"slider\" id=\"servoSlider\" onchange=\"servo(this.value)\" value=\""+recover_wait_time_string+"\"/>");
-
-            client.println("<script>var slider = document.getElementById(\"servoSlider\");");
-            client.println("var servoP = document.getElementById(\"servoPos\"); servoP.innerHTML = slider.value;");
-            client.println("slider.oninput = function() { slider.value = this.value; servoP.innerHTML = this.value; }");
-            client.println("$.ajaxSetup({timeout:1000}); function servo(pos) { ");
-            client.println("$.get(\"/?recoverywaittime=\" + pos + \"&\"); {Connection: close};}</script>");
-            //Max speed slider
-            client.println("<p>Max Speed: <span id=\"maPos\"></span></p>");          
-            client.println("<input type=\"range\" min=\"100\" max=\"255\" class=\"slider\" id=\"maSlider\" onchange=\"ma(this.value)\" value=\""+ motor_max_speed_string +"\"/>");
-
-            client.println("<script>var slider1 = document.getElementById(\"maSlider\");");
-            client.println("var maP = document.getElementById(\"maPos\"); maP.innerHTML = slider1.value;");
-            client.println("slider1.oninput = function() { slider1.value = this.value; maP.innerHTML = this.value; }");
-            client.println("$.ajaxSetup({timeout:1000}); function ma(pos0) { ");
-            client.println("$.get(\"/?maxspeed=\" + pos0 + \"&\"); {Connection: close};}</script>"); 
-            
-
-            // IR heading
-            current_ir_string = String(analogRead(odometerSensor));
-            client.println("<p>Current IR Value - " + current_ir_string + "</p>");
-            //Lower threshold slider
-            client.println("<p>Lower Threshold: <span id=\"lowerPos\"></span></p>");          
-            client.println("<input type=\"range\" min=\"0\" max=\"4095\" class=\"slider\" id=\"lowerSlider\" onchange=\"lower(this.value)\" value=\""+ lower_threshold_string+"\"/>");
-
-            client.println("<script>var slider2 = document.getElementById(\"lowerSlider\");");
-            client.println("var lowerP = document.getElementById(\"lowerPos\"); lowerP.innerHTML = slider2.value;");
-            client.println("slider2.oninput = function() { slider2.value = this.value; lowerP.innerHTML = this.value; }");
-            client.println("$.ajaxSetup({timeout:1000}); function lower(pos1) { ");
-            client.println("$.get(\"/?lowerthreshold=\" + pos1 + \"&\"); {Connection: close};}</script>");
-            //Upper Threshold Slider 
-            client.println("<p>Upper Threshold: <span id=\"upperPos\"></span></p>");          
-            client.println("<input type=\"range\" min=\"0\" max=\"4095\" class=\"slider\" id=\"upperSlider\" onchange=\"upper(this.value)\" value=\""+ high_threshold_string+"\"/>");
-
-            client.println("<script>var slider3 = document.getElementById(\"upperSlider\");");
-            client.println("var upperP = document.getElementById(\"upperPos\"); upperP.innerHTML = slider3.value;");
-            client.println("slider3.oninput = function() { slider3.value = this.value; upperP.innerHTML = this.value; }");
-            client.println("$.ajaxSetup({timeout:1000}); function upper(pos2) { ");
-            client.println("$.get(\"/?higherthreshold=\" + pos2 + \"&\"); {Connection: close};}</script>");
-
-            client.println("<p><a href=\"/skiptorecovery\"><button class=\"button skiptorecoverybutton\">Skip to Recovery</button></a></p>");
-            client.println("<p><a href=\"/refresh\"><button class=\"button refreshbutton\">Refresh</button></a></p>");
-
-
-            client.println("</body></html>");
-            // The HTTP response ends with another blank line
-            client.println();
-            // Break out of the while loop
-            break;
-          } else { // if you got a newline, then clear currentLine
-            currentLine = "";
-          }
-        } else if (c != '\r') {  // if you got anything else but a carriage return character,
-          currentLine += c;      // add it to the end of the currentLine
-        }
-      }
-    }
-    // Clear the header variable
-    header = "";
-    // Close the connection
-    delay(2);
-    client.stop();
-    Serial.println("Client disconnected.");
-    Serial.println("");
+  if(shouldCheckAtTheTop){
+    if(rotations > countToTopLimit){return true;}
+    return false;
   }
+  return false;
 }
-
 
 bool isStalled(){
   // If there have been no rotations in less than 160 milliseconds will return true, otherwise false
-  if(!stall_timer_started){
-    stall_timer_started = true;
+  if(!stallTimerStarted){
+    stallTimerStarted = true;
     stallTimer.start();
     stallRotationCount = rotations;
     return false;
   }
   else if(stallTimer.getTime() > 160){
-    stall_timer_started = false;
+    stallTimerStarted = false;
     if(rotations - stallRotationCount < 1){
       Serial.println("Stalling!");
       return true;
     }
-    else{return false;}
   }
   return false;
 }
 
 bool someoneOn(){
-  if(digitalRead(handleBarSensor)){return false;}
-  else{return true;}
+  byte first, second, third;
+  first = digitalRead(handleBarSensor);
+  second = digitalRead(handleBarSensor);
+  third = digitalRead(handleBarSensor);
+  if(first == 0 and second == 0 and third == 0){
+    return true;
+  }
+  return false;
 }
 
 void turnOnMotor(int speed){
@@ -322,7 +200,6 @@ void readyRoutine(){
   digitalWrite(readyLight, HIGH);
   readyTimeOutTimer.start();
   while(not someoneOn()){
-    checkClient();
     if(readyTimeOutTimer.getTime() > 120000 or wifiSkipToRecovery){
       State = RECOVERY;
       wifiSkipToRecovery = false;
@@ -331,7 +208,7 @@ void readyRoutine(){
   }
   State = ZIPPING;
   digitalWrite(readyLight, LOW);
-  delay(1);
+  delay(5);  //helps the sensor/button be more consistint
 }
 
 void zippingRoutine(){
@@ -339,17 +216,16 @@ void zippingRoutine(){
   startCount();
   while(someoneOn()){
     countRotations();
-    checkClient();
   }
   stopCount();
   Serial.print("Total Rotations for the zip: ");
   Serial.println(rotations - beforeRotations);
   State = RECOVERY;
   digitalWrite(zipLight, LOW);
-  delay(1);
+  delay(5);
 }
 
-void recoveryExitRoutine(){
+void stopTheMotor(){
   // This is how recovery exits to ready when either: someone pulls on handlebar, or stop it with wifi.
   turnOnMotor(0);
   digitalWrite(recoveryLight, LOW);
@@ -360,78 +236,82 @@ void recoveryExitRoutine(){
   }
   recoveryTimer.start();
   while(recoveryTimer.getTime() < RECOVERY_TO_READY_AFTER_BEEN_GRABBED_TIME){
-    checkClient();
   }
   State = READY;
 }
 
-void recoveryRoutine(){
+void moveToTop(){
   digitalWrite(recoveryLight, HIGH);
   digitalWrite(buzzer, HIGH);
   atTheTop = false;
   recoveryTimer.start();
   while(recoveryTimer.getTime() < recoveryWaitTime){
-    checkClient();
     if(wifiStopMotor){
       wifiStopMotor = false;
-      recoveryExitRoutine();
+      stopTheMotor();
       return;
     }
   }
   Serial.println("Speeding up motor");
   digitalWrite(buzzer, LOW);
-  for(int i=50; i<=motorsMaxSpeed; i++){
-    turnOnMotor(i);
+  for(int motorSpeed=50; motorSpeed<=motorsMaxSpeed; motorSpeed++){
+    turnOnMotor(motorSpeed);
     recoveryTimer.start();
     while(recoveryTimer.getTime() < motorAccelerationTimeLimit){
-      checkClient();
       countRotations();
       if(someoneOn()){
-        recoveryExitRoutine();
+        stopTheMotor();
         return;
       }
-      if(i > motorsMaxSpeed - 30 and isStalled()){
-        recoveryExitRoutine();
+      if(motorSpeed > motorsMaxSpeed - 30 and isStalled()){
+        stopTheMotor();
         return;
       }
     }
   }
   Serial.println("Motor is at full speed");
   while(not someoneOn() and not isStalled()){
-    checkClient();
     countRotations();
     if(wifiStopMotor){
       break;
     }
     if(isAtTheTop() and not atTheTop){
       turnOnMotor(motorsMaxSpeed - 70);
-      Serial.println("Turning motor down because were at the top!");
+      Serial.println("Turning motor down because were at the top");
       atTheTop = true;
       atTheTopTimer.start();
     }
   }
-  recoveryExitRoutine();
+  stopTheMotor();
 }
 
 void updateVariableStrings(){
-  // I was expecting this function to have more stuff but it only updates the state string
   if(State == READY){state_string = "Ready";}
   else if(State == ZIPPING){state_string = "Zipping";}
   else if(State == RECOVERY){state_string = "Recovery";}
 }
 
+// Replaces placeholder with button section in your web page
+String processor(const String& var){
+  //Serial.println(var);
+  if (var == "MAXSPEEDVALUE"){
+    return String(motorsMaxSpeed);
+  }
+  else if(var == "STATE"){
+    return state_string;
+  }
+  else if(var == "DIRECTION"){
+    return direction_string;
+  }
+  return String();
+}
+
 void setup(){
-  setCpuFrequencyMhz(CPU_FREQ);
+  //setCpuFrequencyMhz(CPU_FREQ);
   Serial.begin(115200);
   pinMode(33, OUTPUT);
   digitalWrite(33, LOW); //braden shorted this or something...
   analogReadResolution(12);
-
-  WiFi.softAP(ssid, password);
-  IPAddress IP = WiFi.softAPIP();
-  Serial.print("AP IP address: ");
-  Serial.println(IP);
-  server.begin();
 
   pinMode(odometerLed, OUTPUT);
   digitalWrite(odometerLed, HIGH);  //this light stays on all the time
@@ -448,8 +328,43 @@ void setup(){
   ledcAttachPin(motor, ledChannel);
   ledcWrite(ledChannel, 0);
   delay(3000);
-  Serial.print("Cpu freq: ");
-  Serial.println(getCpuFrequencyMhz());
+  //Serial.print("Cpu freq: ");
+  //Serial.println(getCpuFrequencyMhz());
+
+  WiFi.softAP(ssid, password);
+  server.begin();
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", index_html, processor);
+  });
+
+  server.on("/maxspeed", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    // GET input1 value on <ESP_IP>/slider?value=<inputMessage>
+    if (request->hasParam("value")) {
+      motor_max_speed_string = request->getParam("value")->value();
+      motorsMaxSpeed = motor_max_speed_string.toInt();
+      Serial.print("Max speed in now:");
+      Serial.println(motor_max_speed_string);
+    }
+    request->send(200, "text/plain", "OK");
+  });
+
+  server.on("/stop_click", HTTP_GET, [](AsyncWebServerRequest *request){
+    Serial.println("stop button clicked");
+    if(State == RECOVERY){wifiStopMotor = true;}
+    request->send_P(200, "text/html", index_html, processor);
+  });
+
+  server.on("/direction_click", HTTP_GET, [](AsyncWebServerRequest *request){
+    Serial.println("direction button clicked");
+    request->send_P(200, "text/html", index_html, processor);
+  });
+
+  server.on("/go_up_click", HTTP_GET, [](AsyncWebServerRequest *request){
+    Serial.println("Go up button Clicked");
+    if(State == READY){wifiSkipToRecovery = true;}
+    request->send_P(200, "text/html", index_html, processor);
+  });
 }
 
 void loop(){
@@ -459,5 +374,5 @@ void loop(){
 
   if(State == READY){readyRoutine();}
   else if(State == ZIPPING){zippingRoutine();}
-  else if(State == RECOVERY){recoveryRoutine();}
+  else if(State == RECOVERY){moveToTop();}
 }
